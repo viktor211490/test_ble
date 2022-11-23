@@ -1,9 +1,12 @@
 import 'dart:async';
-
+import 'dart:typed_data';
+import 'package:convert/convert.dart';
 import 'package:flutter/material.dart';
+import 'package:logging/logging.dart';
 import 'package:quick_blue/quick_blue.dart';
 import 'package:flutter_spinkit/flutter_spinkit.dart';
 
+final log = Logger('BleLogger');
 void main() {
   runApp(const MyApp());
 }
@@ -27,12 +30,12 @@ class MyApp extends StatelessWidget {
 class MyHomePage extends StatefulWidget {
   const MyHomePage({super.key, required this.title});
   final String title;
-
   @override
   State<MyHomePage> createState() => _MyHomePageState();
 }
 
 class _MyHomePageState extends State<MyHomePage> {
+  final QuickBlue blue = QuickBlue();
   List<BlueScanResult> bleNames = [];
   var set = <String>{};
 
@@ -48,21 +51,18 @@ class _MyHomePageState extends State<MyHomePage> {
     return Timer(Duration(milliseconds: milliseconds), _stopScan);
   }
 
-  void _connectBlePeripheral(BlueScanResult data) {
+  Future<void> _connectBlePeripheral(BlueScanResult data) async {
     print(data.name);
 
-    void _handleConnectionChange(String deviceId, BlueConnectionState state) {
+    // await QuickBlue.readValue('D4:62:E6:96:8D:DA', '0000180f-0000-1000-8000-00805f9b34fb', '00002a19-0000-1000-8000-00805f9b34fb');
+
+    Future<void> _handleConnectionChange(
+        String deviceId, BlueConnectionState state) async {
       print('_handleConnectionChange $deviceId, ${state.value}');
     }
 
-    void _handleServiceDiscovery(String deviceId, String serviceId) {
-      print('_handleServiceDiscovery $deviceId, $serviceId');
-    }
-
-    QuickBlue.connect(data.deviceId);
-
     QuickBlue.setConnectionHandler(_handleConnectionChange);
-    QuickBlue.setServiceHandler(_handleServiceDiscovery);
+    QuickBlue.connect(data.deviceId);
   }
 
   void _disconnectBlePher(BlueScanResult data) {
@@ -70,7 +70,13 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   void _findBleDevices() {
+    // QuickBlue.setServiceHandler(_handleServiceDiscovery);
+
+    // void _handleServiceDiscovery(String deviceId) {
+    //   print('_handleServiceDiscovery $deviceId');}
+
     QuickBlue.startScan();
+
     QuickBlue.scanResultStream.listen((result) {
       bleNames.add(result);
     });
@@ -86,10 +92,12 @@ class _MyHomePageState extends State<MyHomePage> {
       );
     },
   );
+
   @override
   void initState() {
     super.initState();
     _findBleDevices();
+    QuickBlue.setLogger(log);
   }
 
   @override
@@ -109,7 +117,7 @@ class _MyHomePageState extends State<MyHomePage> {
                     Text('id: ${bleNames.first.deviceId}'),
                     Text('rssi: ${bleNames.first.rssi}'),
                     Text(
-                        'manufacturerData/bufer: ${bleNames.first.manufacturerData.buffer.asByteData()}'),
+                        'manufacturerData/buffer: ${bleNames.first.manufacturerData.buffer.asByteData()}'),
                   ],
                 ),
               ),
@@ -152,6 +160,37 @@ class _MyHomePageState extends State<MyHomePage> {
 }
 
 Future<void> _showMyDialog(BuildContext context, BlueScanResult bleInfo) async {
+  Future<void> GetServices(String deviceId) async {
+    void _handleServiceDiscovery(
+        String deviceId, String serviceId, List<String> characteristicIds) {
+      //never triggered
+      print(
+          '_handleServiceDiscovery $deviceId, $serviceId, $characteristicIds');
+      void _handleValueChange(
+          String deviceId, String characteristicId, Uint8List value) {
+        print('_handleValueChange $deviceId, $characteristicId, $value');
+      }
+
+      QuickBlue.setValueHandler(_handleValueChange);
+
+      for (var characteristicId in characteristicIds) {
+        {
+          if (characteristicId == '00002a28-0000-1000-8000-00805f9b34fb') {
+            QuickBlue.setNotifiable(deviceId, serviceId, characteristicId,
+                BleInputProperty.indication);
+            QuickBlue.readValue(deviceId, serviceId, characteristicId);
+          }
+
+          // QuickBlue.setNotifiable(deviceId, serviceId, characteristicId, BleInputProperty.disabled)
+        }
+      }
+    }
+
+    QuickBlue.setServiceHandler(_handleServiceDiscovery);
+
+    QuickBlue.discoverServices(deviceId);
+  }
+
   return showDialog<void>(
     context: context,
     barrierDismissible: false, // user must tap button!
@@ -162,7 +201,12 @@ Future<void> _showMyDialog(BuildContext context, BlueScanResult bleInfo) async {
           child: ListBody(
             children: <Widget>[
               Text('rssi: ${bleInfo.rssi}'),
-              Text('manufacturerData/bufer: ${bleInfo.name}'),
+              Text('manufacturerData/buffer: ${bleInfo.name}'),
+              IconButton(
+                  onPressed: () {
+                    GetServices(bleInfo.deviceId);
+                  },
+                  icon: const Icon(Icons.accessible_forward_sharp))
             ],
           ),
         ),
